@@ -194,6 +194,17 @@ jobs:
           make -j2 all-gcc
           make -C "$build_dir/gcc" testsuite/et-static.exp
 
+      - name: Verify -march/-mtune, ABI defaults, and GCC-to-GAS driver
+        run: |
+          set -euxo pipefail
+          python3 "$GITHUB_WORKSPACE/toolchain-tests/lx5280/check_driver.py" \
+            --cc "$RUNNER_TEMP/build-gcc/gcc/xgcc" \
+            --build-gcc-dir "$RUNNER_TEMP/build-gcc/gcc" \
+            --assembler /usr/bin/mipsel-linux-gnu-as \
+            --objdump /usr/bin/mipsel-linux-gnu-objdump \
+            --readelf /usr/bin/mipsel-linux-gnu-readelf \
+            --artifacts "$RUNNER_TEMP/lx5280-driver"
+
       - name: Run LX5280 code-generation regression test
         run: |
           set -euxo pipefail
@@ -251,6 +262,8 @@ jobs:
             --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
             --outdir="$RUNNER_TEMP/lx5280-dejagnu" \
             mips.exp=lexra-lx5280-no-unaligned.c \
+            mips.exp=lexra-lx5280-options.c \
+            mips.exp=lexra-lx5280-tune.c \
             2>&1 | tee "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"
 
           # DejaGNU can exit successfully even when a test emits ERROR.
@@ -260,12 +273,17 @@ jobs:
             exit 1
           fi
 
-          if ! grep -Eq '^PASS: gcc.target/mips/lexra-lx5280-no-unaligned[.]c' \
-            "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
-            echo "The LX5280 DejaGNU regression test did not report PASS." >&2
-            cat "$RUNNER_TEMP/lx5280-dejagnu/runtest.log" >&2
-            exit 1
-          fi
+          for test_name in \
+            lexra-lx5280-no-unaligned.c \
+            lexra-lx5280-options.c \
+            lexra-lx5280-tune.c; do
+            if ! grep -Eq "^PASS: gcc.target/mips/${test_name}([[:space:]]|$)" \
+              "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
+              echo "The LX5280 test ${test_name} did not report PASS." >&2
+              cat "$RUNNER_TEMP/lx5280-dejagnu/runtest.log" >&2
+              exit 1
+            fi
+          done
 
       - name: Upload LX5280 build and DejaGNU artifacts
         if: always()
@@ -280,4 +298,5 @@ jobs:
             ${{ runner.temp }}/lx5280-O*.dis
             ${{ runner.temp }}/site.exp
             ${{ runner.temp }}/lx5280-dejagnu/
+            ${{ runner.temp }}/lx5280-driver/
           if-no-files-found: ignore
