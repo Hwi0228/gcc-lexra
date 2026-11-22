@@ -203,3 +203,99 @@ jobs:
           mipsel-linux-gnu-gcc -static -O2 -march=mips32r2 -mabi=32 \
             "$RUNNER_TEMP/qemu-smoke.c" -o "$RUNNER_TEMP/qemu-smoke"
           qemu-mipsel "$RUNNER_TEMP/qemu-smoke"
+
+  lx5280-gcc-build:
+    name: Build branch GCC and run LX5280 DejaGNU test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the complete GCC source tree
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install GCC build and cross-tool dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential bison flex texinfo \
+            libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
+            dejagnu expect binutils-mipsel-linux-gnu
+
+      - name: Configure and build the branch GCC
+        run: |
+          set -euxo pipefail
+          build_dir="$RUNNER_TEMP/build-gcc"
+          mkdir -p "$build_dir"
+          cd "$build_dir"
+
+          "$GITHUB_WORKSPACE/configure" \
+            --target=mipsel-linux-gnu \
+            --prefix="$RUNNER_TEMP/lexra-toolchain" \
+            --with-abi=32 \
+            --with-as=/usr/bin/mipsel-linux-gnu-as \
+            --with-ld=/usr/bin/mipsel-linux-gnu-ld \
+            --without-headers \
+            --with-newlib \
+            --disable-bootstrap \
+            --disable-multilib \
+            --disable-shared \
+            --disable-threads \
+            --disable-nls \
+            --disable-libssp \
+            --disable-libgomp \
+            --disable-libquadmath \
+            --disable-libatomic \
+            --enable-languages=c
+
+          make -j2 all-gcc
+
+      - name: Run LX5280 code-generation regression test
+        run: |
+          set -euxo pipefail
+          build_dir="$RUNNER_TEMP/build-gcc"
+          gcc_under_test="$build_dir/gcc/xgcc -B$build_dir/gcc/"
+          test_file="$GITHUB_WORKSPACE/gcc/testsuite/gcc.target/mips/lexra-lx5280-no-unaligned.c"
+          test -x "$build_dir/gcc/xgcc"
+          test -f "$test_file"
+
+          "$build_dir/gcc/xgcc" -B"$build_dir/gcc/" \
+            -march=lx5280 -mno-abicalls -fno-pic -O2 \
+            -S "$test_file" -o "$RUNNER_TEMP/lx5280-packed.s"
+
+          if grep -Eiw '\b(lwl|lwr|swl|swr)\b' "$RUNNER_TEMP/lx5280-packed.s"; then
+            echo "LX5280 output contains an unsupported unaligned instruction" >&2
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/lx5280-dejagnu"
+          cat > "$RUNNER_TEMP/lx5280-site.exp" <<EOF
+          set GCC_UNDER_TEST "$gcc_under_test"
+          set target_triplet "mipsel-linux-gnu"
+          set target_alias "mipsel-linux-gnu"
+          set build_triplet "x86_64-pc-linux-gnu"
+          set host_triplet "x86_64-pc-linux-gnu"
+          set srcdir "$GITHUB_WORKSPACE/gcc/testsuite"
+          set objdir "$RUNNER_TEMP/lx5280-dejagnu"
+          EOF
+
+          cd "$RUNNER_TEMP"
+          runtest --tool gcc \
+            --target=mipsel-linux-gnu \
+            --target_board=unix \
+            --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
+            --outdir="$RUNNER_TEMP/lx5280-dejagnu" \
+            gcc.target/mips/lexra-lx5280-no-unaligned.c
+
+      - name: Upload LX5280 build and DejaGNU artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx5280-gcc-build-and-tests
+          path: |
+            ${{ runner.temp }}/build-gcc/config.log
+            ${{ runner.temp }}/build-gcc/gcc/xgcc
+            ${{ runner.temp }}/lx5280-packed.s
+            ${{ runner.temp }}/lx5280-site.exp
+            ${{ runner.temp }}/lx5280-dejagnu/
+          if-no-files-found: ignore
