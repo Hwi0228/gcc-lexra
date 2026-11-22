@@ -292,6 +292,7 @@ struct mips_cpu_info {
 
 /* Architecture target defines.  */
 #define TARGET_ALLEGREX             (mips_arch == PROCESSOR_ALLEGREX)
+#define TARGET_LX5280               (mips_arch == PROCESSOR_LX5280)
 #define TARGET_LOONGSON_2E          (mips_arch == PROCESSOR_LOONGSON_2E)
 #define TARGET_LOONGSON_2F          (mips_arch == PROCESSOR_LOONGSON_2F)
 #define TARGET_LOONGSON_2EF         (TARGET_LOONGSON_2E || TARGET_LOONGSON_2F)
@@ -823,7 +824,7 @@ struct mips_cpu_info {
 
 #define MIPS_ISA_LEVEL_SPEC \
   "%{" MIPS_ISA_LEVEL_OPTION_SPEC ":;: \
-     %{march=mips1|march=r2000|march=r3000|march=r3900:-mips1} \
+     %{march=mips1|march=r2000|march=r3000|march=r3900|march=lx5280:-mips1} \
      %{march=mips2|march=r6000:-mips2} \
      %{march=mips3|march=r4*|march=vr4*|march=orion|march=loongson2*:-mips3} \
      %{march=mips4|march=r8000|march=vr5*|march=rm7000|march=rm9000 \
@@ -858,7 +859,7 @@ struct mips_cpu_info {
   "%{mhard-float|msoft-float|mno-float|march=mips*:; \
      march=vr41*|march=m4k|march=4k*|march=24kc|march=24kec \
      |march=34kc|march=34kn|march=74kc|march=1004kc|march=5kc \
-     |march=m14k*|march=m5101|march=octeon|march=xlr: -msoft-float; \
+     |march=m14k*|march=m5101|march=octeon|march=xlr|march=lx5280: -msoft-float; \
      march=*: -mhard-float}"
 
 /* A spec condition that matches 32-bit options.  It only works if
@@ -1199,6 +1200,7 @@ struct mips_cpu_info {
 				 && !TARGET_MIPS16)
 
 #define ISA_HAS_LWL_LWR		(mips_isa_rev <= 5 \
+				 && !TARGET_LX5280 \
 				 && (!TARGET_MIPS16 || ISA_HAS_MIPS16E2))
 
 #define ISA_HAS_IEEE_754_LEGACY	(mips_isa_rev <= 5)
@@ -1497,7 +1499,7 @@ struct mips_cpu_info {
 %{noasmopt:-O0; O0|fno-delayed-branch:-O1; O*:-O2; :-O1} \
 %(subtarget_asm_debugging_spec) \
 %{mabi=*} %{!mabi=*: %(asm_abi_default_spec)} \
-%{mgp32} %{mgp64} %{march=*} %{mxgot:-xgot} \
+%{mgp32} %{mgp64} %{!march=lx5280:%{march=*}} %{mxgot:-xgot} \
 %{mfp32} %{mfpxx} %{mfp64} %{mnan=*} \
 %{modd-spreg} %{mno-odd-spreg} \
 %{mshared} %{mno-shared} \

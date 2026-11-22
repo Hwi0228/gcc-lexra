@@ -73,6 +73,7 @@
   i6400
   p6600
   allegrex
+  lx5280
 ])
 
 (define_c_enum "unspec" [
@@ -169,6 +170,10 @@
   UNSPEC_JRHB
 
   VUNSPEC_SPECULATION_BARRIER
+
+  ;; Lexra LX5280 Radiax user-register transfers.
+  UNSPEC_LX5280_MFRU
+  UNSPEC_LX5280_MTRU
 ])
 
 (define_constants
@@ -4551,7 +4556,8 @@
 	(unspec:GPR [(match_operand:BLK 1 "memory_operand" "m")
 		     (match_operand:QI 2 "memory_operand" "ZC")]
 		    UNSPEC_LOAD_LEFT))]
-  "(!TARGET_MIPS16 || ISA_HAS_MIPS16E2)
+  "ISA_HAS_LWL_LWR
+    && (!TARGET_MIPS16 || ISA_HAS_MIPS16E2)
     && mips_mem_fits_mode_p (<MODE>mode, operands[1])"
   "<load>l\t%0,%2"
   [(set_attr "move_type" "load")
@@ -4564,7 +4570,8 @@
 		     (match_operand:QI 2 "memory_operand" "ZC")
 		     (match_operand:GPR 3 "register_operand" "0")]
 		    UNSPEC_LOAD_RIGHT))]
-  "(!TARGET_MIPS16 || ISA_HAS_MIPS16E2)
+  "ISA_HAS_LWL_LWR
+    && (!TARGET_MIPS16 || ISA_HAS_MIPS16E2)
     && mips_mem_fits_mode_p (<MODE>mode, operands[1])"
   "<load>r\t%0,%2"
   [(set_attr "move_type" "load")
@@ -4576,7 +4583,8 @@
 	(unspec:BLK [(match_operand:GPR 1 "reg_or_0_operand" "dJ")
 		     (match_operand:QI 2 "memory_operand" "ZC")]
 		    UNSPEC_STORE_LEFT))]
-  "!TARGET_MIPS16
+  "ISA_HAS_LWL_LWR
+   && !TARGET_MIPS16
    && mips_mem_fits_mode_p (<MODE>mode, operands[0])"
   "<store>l\t%z1,%2"
   [(set_attr "move_type" "store")
@@ -4588,7 +4596,8 @@
 		     (match_operand:QI 2 "memory_operand" "ZC")
 		     (match_dup 0)]
 		    UNSPEC_STORE_RIGHT))]
-  "!TARGET_MIPS16
+  "ISA_HAS_LWL_LWR
+   && !TARGET_MIPS16
    && mips_mem_fits_mode_p (<MODE>mode, operands[0])"
   "<store>r\t%z1,%2"
   [(set_attr "move_type" "store")
@@ -4599,7 +4608,8 @@
     (unspec:BLK [(match_operand:GPR 1 "register_operand" "d")
 		     (match_operand:QI 2 "memory_operand" "ZC")]
 		    UNSPEC_STORE_LEFT))]
-  "TARGET_MIPS16 && ISA_HAS_MIPS16E2
+  "ISA_HAS_LWL_LWR
+   && TARGET_MIPS16 && ISA_HAS_MIPS16E2
    && mips_mem_fits_mode_p (<MODE>mode, operands[0])"
   "<store>l\t%1,%2"
   [(set_attr "move_type" "store")
@@ -4612,7 +4622,8 @@
 		     (match_operand:QI 2 "memory_operand" "ZC")
 		     (match_dup 0)]
 		    UNSPEC_STORE_RIGHT))]
-  "TARGET_MIPS16 && ISA_HAS_MIPS16E2
+  "ISA_HAS_LWL_LWR
+   && TARGET_MIPS16 && ISA_HAS_MIPS16E2
    && mips_mem_fits_mode_p (<MODE>mode, operands[0])"
   "<store>r\t%1,%2"
   [(set_attr "move_type" "store")
@@ -8172,3 +8183,41 @@
 (define_c_enum "unspec" [
   UNSPEC_ADDRESS_FIRST
 ])
+
+
+;;
+;; Lexra LX5280 Radiax user-register transfers.
+;;
+;; MFRU reads a Radiax user register into a GPR.  MTRU writes a GPR into
+;; a Radiax user register.  The first implementation emits the documented
+;; LEXOP/SUBOP words because the generic GAS port does not yet know these
+;; instructions by mnemonic.
+;;
+
+(define_insn "mips_lx5280_mfru"
+  [(set (match_operand:SI 0 "register_operand" "=d")
+        (unspec_volatile:SI
+          [(match_operand:QI 1 "const_int_operand" "I")]
+          UNSPEC_LX5280_MFRU))]
+  "TARGET_LX5280
+   && (IN_RANGE (INTVAL (operands[1]), 0, 2)
+       || IN_RANGE (INTVAL (operands[1]), 4, 6)
+       || IN_RANGE (INTVAL (operands[1]), 16, 18)
+       || INTVAL (operands[1]) == 24)"
+  { return mips_output_lx5280_radiax_move (operands, false); }
+  [(set_attr "type" "arith")
+   (set_attr "mode" "SI")])
+
+(define_insn "mips_lx5280_mtru"
+  [(unspec_volatile
+     [(match_operand:SI 0 "register_operand" "d")
+      (match_operand:QI 1 "const_int_operand" "I")]
+     UNSPEC_LX5280_MTRU)]
+  "TARGET_LX5280
+   && (IN_RANGE (INTVAL (operands[1]), 0, 2)
+       || IN_RANGE (INTVAL (operands[1]), 4, 6)
+       || IN_RANGE (INTVAL (operands[1]), 16, 18)
+       || INTVAL (operands[1]) == 24)"
+  { return mips_output_lx5280_radiax_move (operands, true); }
+  [(set_attr "type" "arith")
+   (set_attr "mode" "SI")])

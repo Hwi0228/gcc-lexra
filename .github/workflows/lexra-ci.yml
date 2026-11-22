@@ -1,0 +1,306 @@
+name: Lexra toolchain validation
+
+on:
+  push:
+    branches: [master, devel/lexra]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lexra-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isa-checker:
+    name: ISA checker (forbidden-instruction guard)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install MIPS cross tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu python3
+
+      - name: Compile MIPS-I baseline object
+        run: |
+          set -euxo pipefail
+          cat > "$RUNNER_TEMP/isa-smoke.c" <<'EOF'
+          typedef unsigned int u32;
+
+          __attribute__((noinline))
+          u32 lexra_isa_smoke (const volatile u32 *p)
+          {
+            u32 a = p[0];
+            u32 b = p[1];
+            u32 c = p[2];
+            return (a + b) ^ (c - a);
+          }
+          EOF
+
+          mipsel-linux-gnu-gcc -march=mips1 -mfp32 -mno-abicalls -fno-pic \
+            -O2 -c "$RUNNER_TEMP/isa-smoke.c" -o "$RUNNER_TEMP/isa-smoke.o"
+          mipsel-linux-gnu-objdump -d "$RUNNER_TEMP/isa-smoke.o" \
+            > "$RUNNER_TEMP/isa-smoke.dis"
+
+      - name: Test checker and scan the object disassembly
+        run: |
+          set -euxo pipefail
+          cat > "$RUNNER_TEMP/check_isa.py" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          FORBIDDEN = {"lwl", "lwr", "swl", "swr"}
+          INSN = re.compile(
+              r"^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2,8}\s+)+"
+              r"([a-z][a-z0-9_.]*)\b",
+              re.IGNORECASE,
+          )
+
+          def scan(disassembly):
+              found = []
+              decoded = 0
+              for line in disassembly.splitlines():
+                  match = INSN.match(line)
+                  if not match:
+                      continue
+                  decoded += 1
+                  mnemonic = match.group(1).lower()
+                  if mnemonic in FORBIDDEN:
+                      found.append(mnemonic)
+              return decoded, found
+
+          # A negative fixture proves that the guard really detects forbidden ops.
+          bad = "  0:  88020000  lwl v0,0(zero)\n"
+          count, forbidden = scan(bad)
+          if count != 1 or forbidden != ["lwl"]:
+              raise SystemExit("checker self-test failed to detect synthetic LWL")
+
+          good = "  0:  8c820000  lw v0,0(a0)\n"
+          count, forbidden = scan(good)
+          if count != 1 or forbidden:
+              raise SystemExit("checker self-test rejected a legal aligned load")
+
+          path = Path(sys.argv[1])
+          disassembly = path.read_text(encoding="utf-8")
+          count, forbidden = scan(disassembly)
+          if count == 0:
+              raise SystemExit("no instructions decoded; refusing a vacuous pass")
+          if forbidden:
+              raise SystemExit("forbidden LX5280-family instructions found: "
+                               + ", ".join(forbidden))
+          print(f"ISA check passed: {count} instructions; none of {sorted(FORBIDDEN)}")
+          PY
+
+          python3 "$RUNNER_TEMP/check_isa.py" "$RUNNER_TEMP/isa-smoke.dis"
+
+      - name: Upload disassembly
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isa-check-disassembly
+          path: ${{ runner.temp }}/isa-smoke.dis
+          if-no-files-found: ignore
+
+  qemu-smoke:
+    name: QEMU MIPS execution smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install MIPS cross compiler and QEMU user emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc-mipsel-linux-gnu qemu-user libc6-dev-mipsel-cross
+
+      - name: Build and execute a MIPS program
+        run: |
+          set -euxo pipefail
+          cat > "$RUNNER_TEMP/qemu-smoke.c" <<'EOF'
+          #include <stdint.h>
+          
+          static unsigned int
+          sum_words (const volatile uint32_t *words, unsigned int count)
+          {
+            uint32_t sum = 0;
+            for (unsigned int i = 0; i < count; ++i)
+              sum += words[i];
+            return sum;
+          }
+
+          int
+          main (void)
+          {
+            volatile uint32_t words[] = { 5, 7, 11, 13 };
+            return sum_words (words, 4) == 36 ? 0 : 1;
+          }
+          EOF
+
+          # Generic MIPS32r2 QEMU is only a shared-MIPS execution smoke test.
+          # It is NOT a Lexra LX5280 CPU model and cannot prove Lexra conformance.
+          mipsel-linux-gnu-gcc -static -O2 -march=mips32r2 -mabi=32 \
+            "$RUNNER_TEMP/qemu-smoke.c" -o "$RUNNER_TEMP/qemu-smoke"
+          qemu-mipsel "$RUNNER_TEMP/qemu-smoke"
+
+  lx5280-gcc-build:
+    name: Build branch GCC and run LX5280 DejaGNU test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the complete GCC source tree
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install GCC build and cross-tool dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential bison flex texinfo \
+            libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
+            dejagnu expect binutils-mipsel-linux-gnu libc6-dev-mipsel-cross
+
+      - name: Configure and build the branch GCC
+        run: |
+          set -euxo pipefail
+          build_dir="$RUNNER_TEMP/build-gcc"
+          mkdir -p "$build_dir"
+          cd "$build_dir"
+
+          "$GITHUB_WORKSPACE/configure" \
+            --target=mipsel-linux-gnu \
+            --prefix="$RUNNER_TEMP/lexra-toolchain" \
+            --with-abi=32 \
+            --with-as=/usr/bin/mipsel-linux-gnu-as \
+            --with-ld=/usr/bin/mipsel-linux-gnu-ld \
+            --without-headers \
+            --with-newlib \
+            --disable-bootstrap \
+            --disable-multilib \
+            --disable-shared \
+            --disable-threads \
+            --disable-nls \
+            --disable-libssp \
+            --disable-libgomp \
+            --disable-libquadmath \
+            --disable-libatomic \
+            --enable-languages=c
+
+          make -j2 all-gcc
+          make -C "$build_dir/gcc" testsuite/et-static.exp
+
+      - name: Verify -march/-mtune, ABI defaults, and GCC-to-GAS driver
+        run: |
+          set -euxo pipefail
+          python3 "$GITHUB_WORKSPACE/toolchain-tests/lx5280/check_driver.py" \
+            --cc "$RUNNER_TEMP/build-gcc/gcc/xgcc" \
+            --build-gcc-dir "$RUNNER_TEMP/build-gcc/gcc" \
+            --assembler /usr/bin/mipsel-linux-gnu-as \
+            --objdump /usr/bin/mipsel-linux-gnu-objdump \
+            --readelf /usr/bin/mipsel-linux-gnu-readelf \
+            --artifacts "$RUNNER_TEMP/lx5280-driver"
+
+      - name: Run LX5280 code-generation regression test
+        run: |
+          set -euxo pipefail
+          build_dir="$RUNNER_TEMP/build-gcc"
+          gcc_under_test="$build_dir/gcc/xgcc -B$build_dir/gcc/"
+          test_file="$GITHUB_WORKSPACE/gcc/testsuite/gcc.target/mips/lexra-lx5280-no-unaligned.c"
+          test -x "$build_dir/gcc/xgcc"
+          test -f "$test_file"
+
+          # Exercise the LX5280 backend at every common optimization level.
+          # Check both compiler assembly and final object disassembly.
+          for optimization in 0 1 2 3 s; do
+            assembly="$RUNNER_TEMP/lx5280-O${optimization}.s"
+            object="$RUNNER_TEMP/lx5280-O${optimization}.o"
+            disassembly="$RUNNER_TEMP/lx5280-O${optimization}.dis"
+
+            "$build_dir/gcc/xgcc" -B"$build_dir/gcc/" \
+              -march=lx5280 -mno-abicalls -fno-pic "-O${optimization}" \
+              -S "$test_file" -o "$assembly"
+
+            if grep -Eiw 'lwl|lwr|swl|swr' "$assembly"; then
+              echo "LX5280 assembly contains an unsupported unaligned instruction at -O${optimization}" >&2
+              exit 1
+            fi
+
+            mipsel-linux-gnu-as -o "$object" "$assembly"
+            mipsel-linux-gnu-objdump -d "$object" > "$disassembly"
+
+            if ! grep -Eq '^[[:space:]]*[[:xdigit:]]+:' "$disassembly"; then
+              echo "No instructions decoded from LX5280 object at -O${optimization}" >&2
+              exit 1
+            fi
+            if grep -Eiw 'lwl|lwr|swl|swr' "$disassembly"; then
+              echo "LX5280 object contains an unsupported unaligned instruction at -O${optimization}" >&2
+              exit 1
+            fi
+          done
+
+          mkdir -p "$RUNNER_TEMP/lx5280-dejagnu"
+          cat > "$RUNNER_TEMP/site.exp" <<EOF
+          set GCC_UNDER_TEST "$gcc_under_test"
+          set target_triplet "mipsel-linux-gnu"
+          set target_alias "mipsel-linux-gnu"
+          set build_triplet "x86_64-pc-linux-gnu"
+          set host_triplet "x86_64-pc-linux-gnu"
+          set srcdir "$GITHUB_WORKSPACE/gcc/testsuite"
+          set objdir "$RUNNER_TEMP/lx5280-dejagnu"
+          set et_static "$build_dir/gcc/testsuite/et-static.exp"
+          EOF
+
+          cd "$RUNNER_TEMP"
+          runtest --tool gcc \
+            --target=mipsel-linux-gnu \
+            --target_board=unix \
+            --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
+            --outdir="$RUNNER_TEMP/lx5280-dejagnu" \
+            mips.exp=lexra-lx5280-no-unaligned.c \
+            mips.exp=lexra-lx5280-options.c \
+            mips.exp=lexra-lx5280-tune.c \
+            mips.exp=lexra-lx5280-radiax-movereg.c \
+            mips.exp=lexra-ci-baseline.c \
+            2>&1 | tee "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"
+
+          # DejaGNU can exit successfully even when a test emits ERROR.
+          # Promote harness errors and failures to a hard CI failure.
+          if grep -Eq '^(ERROR|FAIL):' "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
+            echo "DejaGNU reported an ERROR or FAIL result." >&2
+            exit 1
+          fi
+
+          for test_name in \
+            lexra-lx5280-no-unaligned.c \
+            lexra-lx5280-options.c \
+            lexra-lx5280-tune.c \
+            lexra-lx5280-radiax-movereg.c \
+            lexra-ci-baseline.c; do
+            if ! grep -Eq "^PASS: gcc.target/mips/${test_name}([[:space:]]|$)" \
+              "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
+              echo "The LX5280 test ${test_name} did not report PASS." >&2
+              cat "$RUNNER_TEMP/lx5280-dejagnu/runtest.log" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload LX5280 build and DejaGNU artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lx5280-gcc-build-and-tests
+          path: |
+            ${{ runner.temp }}/build-gcc/config.log
+            ${{ runner.temp }}/build-gcc/gcc/xgcc
+            ${{ runner.temp }}/lx5280-O*.s
+            ${{ runner.temp }}/lx5280-O*.o
+            ${{ runner.temp }}/lx5280-O*.dis
+            ${{ runner.temp }}/site.exp
+            ${{ runner.temp }}/lx5280-dejagnu/
+            ${{ runner.temp }}/lx5280-driver/
+          if-no-files-found: ignore

@@ -1178,6 +1178,9 @@ static const struct mips_rtx_cost_data
     COSTS_N_INSNS (256),          /* int_div_di */
 		     2,           /* branch_cost */
 		     4            /* memory_latency */
+  },
+  { /* LX5280: conservative defaults until core-specific costs are measured.  */
+    DEFAULT_COSTS
   }
 };
 
@@ -10364,7 +10367,8 @@ mips_file_start (void)
   else
     fputs ("\t.module\tnooddspreg\n", asm_out_file);
 
-  fprintf (asm_out_file, "\t.module\tarch=%s\n", mips_arch_info->name);
+  fprintf (asm_out_file, "\t.module\tarch=%s\n",
+	   TARGET_LX5280 ? "mips1" : mips_arch_info->name);
   /* FIXME: DSPR3 is not supported by GCC? gas does support it */
   if (TARGET_DSPR2)
     fputs ("\t.module\tdspr2\n", asm_out_file);
@@ -15794,6 +15798,7 @@ AVAIL_NON_MIPS16 (sb1_paired_single, TARGET_SB1 && TARGET_PAIRED_SINGLE_FLOAT)
 AVAIL_NON_MIPS16 (mips3d, TARGET_MIPS3D)
 AVAIL_NON_MIPS16 (dsp, TARGET_DSP)
 AVAIL_NON_MIPS16 (dspr2, TARGET_DSPR2)
+AVAIL_NON_MIPS16 (radiax, TARGET_LX5280)
 AVAIL_NON_MIPS16 (dsp_32, !TARGET_64BIT && TARGET_DSP)
 AVAIL_NON_MIPS16 (dsp_64, TARGET_64BIT && TARGET_DSP)
 AVAIL_NON_MIPS16 (dspr2_32, !TARGET_64BIT && TARGET_DSPR2)
@@ -16217,6 +16222,24 @@ AVAIL_NON_MIPS16 (r6, mips_isa_rev >= 6)
 #define CODE_FOR_mipsr6_max_a_d CODE_FOR_fmax_a_df
 #define CODE_FOR_mipsr6_class_s CODE_FOR_fclass_sf
 #define CODE_FOR_mipsr6_class_d CODE_FOR_fclass_df
+
+/* Emit an LX5280 Radiax MFRU/MTRU transfer as a raw instruction word.
+   The generic MIPS assembler does not yet know the Radiax mnemonics.  */
+const char *
+mips_output_lx5280_radiax_move (rtx *operands, bool write_p)
+{
+  static char buffer[32];
+  unsigned int general_reg = REGNO (operands[0]);
+  unsigned int user_reg = (unsigned int) INTVAL (operands[1]);
+  unsigned int subop = (4u << 3) | (write_p ? 3u : 2u);
+  unsigned int instruction = (0x1fu << 26)
+                             | (general_reg << 16)
+                             | (user_reg << 11)
+                             | subop;
+
+  snprintf (buffer, sizeof (buffer), "\t.word\t0x%08x", instruction);
+  return buffer;
+}
 
 static const struct mips_builtin_description mips_builtins[] = {
 #define MIPS_GET_FCSR 0
@@ -17039,6 +17062,10 @@ static const struct mips_builtin_description mips_builtins[] = {
   MSA_NO_TARGET_BUILTIN (ctcmsa, MIPS_VOID_FTYPE_UQI_SI),
   MSA_BUILTIN_PURE (cfcmsa, MIPS_SI_FTYPE_UQI),
   MSA_BUILTIN_PURE (move_v, MIPS_V16QI_FTYPE_V16QI),
+
+  /* Built-in functions for the Lexra LX5280 Radiax user registers.  */
+  DIRECT_BUILTIN (lx5280_mfru, MIPS_SI_FTYPE_UQI, radiax),
+  DIRECT_NO_TARGET_BUILTIN (lx5280_mtru, MIPS_VOID_FTYPE_USI_UQI, radiax),
 
   /* Built-in functions for MIPSr6.  */
   MIPSR6_BUILTIN_PURE (min_a_s, MIPS_SF_FTYPE_SF_SF),
