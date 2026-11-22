@@ -69,6 +69,16 @@ jobs:
           /* { dg-final { scan-assembler-not "\\<(lwl|lwr|swl|swr)\\>" } } */
           EOF
 
+          cat > "$RUNNER_TEMP/site.exp" <<EOF
+          set GCC_UNDER_TEST "mipsel-linux-gnu-gcc"
+          set target_triplet "mipsel-linux-gnu"
+          set target_alias "mipsel-linux-gnu"
+          set build_triplet "x86_64-pc-linux-gnu"
+          set host_triplet "x86_64-pc-linux-gnu"
+          set srcdir "$GITHUB_WORKSPACE/gcc/testsuite"
+          set objdir "$RUNNER_TEMP/gcc-testsuite"
+          EOF
+
           cd "$RUNNER_TEMP"
           runtest --tool gcc \
             --target=mipsel-linux-gnu \
@@ -129,8 +139,8 @@ jobs:
 
           FORBIDDEN = {"lwl", "lwr", "swl", "swr"}
           INSN = re.compile(
-              r"^\\s*[0-9a-f]+:\\s+(?:[0-9a-f]{2,8}\\s+)+"
-              r"([a-z][a-z0-9_.]*)\\b",
+              r"^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2,8}\s+)+"
+              r"([a-z][a-z0-9_.]*)\b",
               re.IGNORECASE,
           )
 
@@ -148,12 +158,12 @@ jobs:
               return decoded, found
 
           # A negative fixture proves that the guard really detects forbidden ops.
-          bad = "  0:  88020000  lwl v0,0(zero)\\n"
+          bad = "  0:  88020000  lwl v0,0(zero)\n"
           count, forbidden = scan(bad)
           if count != 1 or forbidden != ["lwl"]:
               raise SystemExit("checker self-test failed to detect synthetic LWL")
 
-          good = "  0:  8c820000  lw v0,0(a0)\\n"
+          good = "  0:  8c820000  lw v0,0(a0)\n"
           count, forbidden = scan(good)
           if count != 1 or forbidden:
               raise SystemExit("checker self-test rejected a legal aligned load")
