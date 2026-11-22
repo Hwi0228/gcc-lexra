@@ -230,7 +230,7 @@ jobs:
             --target_board=unix \
             --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
             --outdir="$RUNNER_TEMP/lx5280-dejagnu" \
-            gcc.target/mips/lexra-lx5280-no-unaligned.c
+            mips.exp=lexra-lx5280-no-unaligned.c
 
       - name: Upload LX5280 build and DejaGNU artifacts
         if: always()
