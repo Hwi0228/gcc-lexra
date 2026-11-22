@@ -269,7 +269,7 @@ jobs:
           fi
 
           mkdir -p "$RUNNER_TEMP/lx5280-dejagnu"
-          cat > "$RUNNER_TEMP/lx5280-site.exp" <<EOF
+          cat > "$RUNNER_TEMP/site.exp" <<EOF
           set GCC_UNDER_TEST "$gcc_under_test"
           set target_triplet "mipsel-linux-gnu"
           set target_alias "mipsel-linux-gnu"
@@ -296,6 +296,6 @@ jobs:
             ${{ runner.temp }}/build-gcc/config.log
             ${{ runner.temp }}/build-gcc/gcc/xgcc
             ${{ runner.temp }}/lx5280-packed.s
-            ${{ runner.temp }}/lx5280-site.exp
+            ${{ runner.temp }}/site.exp
             ${{ runner.temp }}/lx5280-dejagnu/
           if-no-files-found: ignore
