@@ -122,6 +122,7 @@ jobs:
         run: |
           set -euxo pipefail
           cat > "$RUNNER_TEMP/qemu-smoke.c" <<'EOF'
+          #include <stdint.h>
           
           static unsigned int
           sum_words (const volatile uint32_t *words, unsigned int count)
