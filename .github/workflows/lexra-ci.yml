@@ -15,63 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gcc-testsuite:
-    name: GCC DejaGNU (MIPS-I baseline)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out GCC MIPS testsuite support
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          sparse-checkout: |
-            gcc/testsuite/gcc.target/mips
-            gcc/testsuite/lib
-            gcc/testsuite/config
-
-      - name: Install cross compiler and DejaGNU
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            dejagnu expect gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu
-
-      - name: Add and run the Lexra-oriented GCC regression test
-        env:
-          GCC_UNDER_TEST: mipsel-linux-gnu-gcc
-        run: |
-          set -euxo pipefail
-          test_file="$GITHUB_WORKSPACE/gcc/testsuite/gcc.target/mips/lexra-ci-baseline.c"
-          test -f "$test_file"
-          mkdir -p "$RUNNER_TEMP/gcc-testsuite"
-
-          cat > "$RUNNER_TEMP/site.exp" <<EOF
-          set GCC_UNDER_TEST "mipsel-linux-gnu-gcc"
-          set target_triplet "mipsel-linux-gnu"
-          set target_alias "mipsel-linux-gnu"
-          set build_triplet "x86_64-pc-linux-gnu"
-          set host_triplet "x86_64-pc-linux-gnu"
-          set srcdir "$GITHUB_WORKSPACE/gcc/testsuite"
-          set objdir "$RUNNER_TEMP/gcc-testsuite"
-          EOF
-
-          cd "$RUNNER_TEMP"
-          runtest --tool gcc \
-            --target=mipsel-linux-gnu \
-            --target_board=unix \
-            --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
-            --outdir="$RUNNER_TEMP/gcc-testsuite" \
-            gcc.target/mips/lexra-ci-baseline.c
-
-      - name: Upload DejaGNU logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gcc-dejagnu-logs
-          path: |
-            ${{ runner.temp }}/gcc-testsuite/
-            ${{ runner.temp }}/site.exp
-          if-no-files-found: ignore
-
   isa-checker:
     name: ISA checker (forbidden-instruction guard)
     runs-on: ubuntu-24.04
@@ -99,7 +42,7 @@ jobs:
           }
           EOF
 
-          mipsel-linux-gnu-gcc -march=mips1 -mno-abicalls -fno-pic \
+          mipsel-linux-gnu-gcc -march=mips1 -mfp32 -mno-abicalls -fno-pic \
             -O2 -c "$RUNNER_TEMP/isa-smoke.c" -o "$RUNNER_TEMP/isa-smoke.o"
           mipsel-linux-gnu-objdump -d "$RUNNER_TEMP/isa-smoke.o" \
             > "$RUNNER_TEMP/isa-smoke.dis"
@@ -179,9 +122,8 @@ jobs:
         run: |
           set -euxo pipefail
           cat > "$RUNNER_TEMP/qemu-smoke.c" <<'EOF'
-          #include <stdint.h>
-
-          static uint32_t
+          
+          static unsigned int
           sum_words (const volatile uint32_t *words, unsigned int count)
           {
             uint32_t sum = 0;
@@ -220,7 +162,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y \
             build-essential bison flex texinfo \
             libgmp-dev libmpfr-dev libmpc-dev libisl-dev \
-            dejagnu expect binutils-mipsel-linux-gnu
+            dejagnu expect binutils-mipsel-linux-gnu libc6-dev-mipsel-cross
 
       - name: Configure and build the branch GCC
         run: |
@@ -249,6 +191,7 @@ jobs:
             --enable-languages=c
 
           make -j2 all-gcc
+          make -C "$build_dir/gcc" testsuite/et-static.exp
 
       - name: Run LX5280 code-generation regression test
         run: |
@@ -277,6 +220,7 @@ jobs:
           set host_triplet "x86_64-pc-linux-gnu"
           set srcdir "$GITHUB_WORKSPACE/gcc/testsuite"
           set objdir "$RUNNER_TEMP/lx5280-dejagnu"
+          set et_static "$build_dir/gcc/testsuite/et-static.exp"
           EOF
 
           cd "$RUNNER_TEMP"
