@@ -177,3 +177,8 @@ MIPS_CPU ("xlp", PROCESSOR_XLP, MIPS_ISA_MIPS64R2, PTF_AVOID_BRANCHLIKELY_SPEED)
 MIPS_CPU ("i6400", PROCESSOR_I6400, MIPS_ISA_MIPS64R6, 0)
 MIPS_CPU ("i6500", PROCESSOR_I6400, MIPS_ISA_MIPS64R6, 0)
 MIPS_CPU ("p6600", PROCESSOR_P6600, MIPS_ISA_MIPS64R6, 0)
+
+/* Lexra processors.  Keep the new entry at the end until the matching
+   GAS CPU-table entry is added, so existing -march option indexes remain
+   stable during this compiler-only step.  */
+MIPS_CPU ("lx5280", PROCESSOR_LX5280, MIPS_ISA_MIPS1, 0)

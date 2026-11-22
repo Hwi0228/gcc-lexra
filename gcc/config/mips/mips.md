@@ -73,6 +73,7 @@
   i6400
   p6600
   allegrex
+  lx5280
 ])
 
 (define_c_enum "unspec" [

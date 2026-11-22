@@ -1178,6 +1178,9 @@ static const struct mips_rtx_cost_data
     COSTS_N_INSNS (256),          /* int_div_di */
 		     2,           /* branch_cost */
 		     4            /* memory_latency */
+  },
+  { /* LX5280: conservative defaults until core-specific costs are measured.  */
+    DEFAULT_COSTS
   }
 };
 
@@ -10364,7 +10367,8 @@ mips_file_start (void)
   else
     fputs ("\t.module\tnooddspreg\n", asm_out_file);
 
-  fprintf (asm_out_file, "\t.module\tarch=%s\n", mips_arch_info->name);
+  fprintf (asm_out_file, "\\t.module\\tarch=%s\\n",
+	   TARGET_LX5280 ? "mips1" : mips_arch_info->name);
   /* FIXME: DSPR3 is not supported by GCC? gas does support it */
   if (TARGET_DSPR2)
     fputs ("\t.module\tdspr2\n", asm_out_file);
