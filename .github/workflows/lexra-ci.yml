@@ -203,14 +203,34 @@ jobs:
           test -x "$build_dir/gcc/xgcc"
           test -f "$test_file"
 
-          "$build_dir/gcc/xgcc" -B"$build_dir/gcc/" \
-            -march=lx5280 -mno-abicalls -fno-pic -O2 \
-            -S "$test_file" -o "$RUNNER_TEMP/lx5280-packed.s"
+          # Exercise the LX5280 backend at every common optimization level.
+          # Check both compiler assembly and final object disassembly.
+          for optimization in 0 1 2 3 s; do
+            assembly="$RUNNER_TEMP/lx5280-O${optimization}.s"
+            object="$RUNNER_TEMP/lx5280-O${optimization}.o"
+            disassembly="$RUNNER_TEMP/lx5280-O${optimization}.dis"
 
-          if grep -Eiw '\b(lwl|lwr|swl|swr)\b' "$RUNNER_TEMP/lx5280-packed.s"; then
-            echo "LX5280 output contains an unsupported unaligned instruction" >&2
-            exit 1
-          fi
+            "$build_dir/gcc/xgcc" -B"$build_dir/gcc/" \
+              -march=lx5280 -mno-abicalls -fno-pic "-O${optimization}" \
+              -S "$test_file" -o "$assembly"
+
+            if grep -Eiw '\\b(lwl|lwr|swl|swr)\\b' "$assembly"; then
+              echo "LX5280 assembly contains an unsupported unaligned instruction at -O${optimization}" >&2
+              exit 1
+            fi
+
+            mipsel-linux-gnu-as -o "$object" "$assembly"
+            mipsel-linux-gnu-objdump -d "$object" > "$disassembly"
+
+            if ! grep -Eq '^[[:space:]]*[[:xdigit:]]+:' "$disassembly"; then
+              echo "No instructions decoded from LX5280 object at -O${optimization}" >&2
+              exit 1
+            fi
+            if grep -Eiw '\\b(lwl|lwr|swl|swr)\\b' "$disassembly"; then
+              echo "LX5280 object contains an unsupported unaligned instruction at -O${optimization}" >&2
+              exit 1
+            fi
+          done
 
           mkdir -p "$RUNNER_TEMP/lx5280-dejagnu"
           cat > "$RUNNER_TEMP/site.exp" <<EOF
@@ -240,7 +260,9 @@ jobs:
           path: |
             ${{ runner.temp }}/build-gcc/config.log
             ${{ runner.temp }}/build-gcc/gcc/xgcc
-            ${{ runner.temp }}/lx5280-packed.s
+            ${{ runner.temp }}/lx5280-O*.s
+            ${{ runner.temp }}/lx5280-O*.o
+            ${{ runner.temp }}/lx5280-O*.dis
             ${{ runner.temp }}/site.exp
             ${{ runner.temp }}/lx5280-dejagnu/
           if-no-files-found: ignore
