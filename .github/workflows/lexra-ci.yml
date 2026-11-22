@@ -1,0 +1,220 @@
+name: Lexra toolchain validation
+
+on:
+  push:
+    branches: [master, devel/lexra]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lexra-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gcc-testsuite:
+    name: GCC DejaGNU (MIPS-I baseline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out GCC MIPS testsuite support
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            gcc/testsuite/gcc.target/mips
+            gcc/testsuite/lib
+            gcc/testsuite/config
+
+      - name: Install cross compiler and DejaGNU
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            dejagnu expect gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu
+
+      - name: Add and run the Lexra-oriented GCC regression test
+        env:
+          GCC_UNDER_TEST: mipsel-linux-gnu-gcc
+        run: |
+          set -euxo pipefail
+          test_dir="$GITHUB_WORKSPACE/gcc/testsuite/gcc.target/mips"
+          mkdir -p "$test_dir" "$RUNNER_TEMP/gcc-testsuite"
+
+          cat > "$test_dir/lexra-ci-baseline.c" <<'EOF'
+          /* { dg-do compile } */
+          /* { dg-options "-march=mips1 -mno-abicalls -fno-pic -O2" } */
+
+          /*
+             This is a baseline test, not a claim that GCC supports -march=lx5280
+             yet. Once the LX5280 target option is implemented, change the target
+             flags here and retain the same code-generation assertions.
+          */
+
+          struct aligned_words
+          {
+            unsigned int word[4];
+          };
+
+          __attribute__((noinline))
+          unsigned int
+          lexra_ci_sum_words (const volatile struct aligned_words *p)
+          {
+            return p->word[0] + p->word[1] + p->word[2] + p->word[3];
+          }
+
+          /* The aligned baseline must not need the MIPS unaligned left/right ops. */
+          /* { dg-final { scan-assembler-not "\\<(lwl|lwr|swl|swr)\\>" } } */
+          EOF
+
+          cd "$RUNNER_TEMP"
+          runtest --tool gcc \
+            --target=mipsel-linux-gnu \
+            --target_board=unix \
+            --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
+            --outdir="$RUNNER_TEMP/gcc-testsuite" \
+            gcc.target/mips/lexra-ci-baseline.c
+
+      - name: Upload DejaGNU logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcc-dejagnu-logs
+          path: |
+            ${{ runner.temp }}/gcc-testsuite/
+            ${{ runner.temp }}/site.exp
+          if-no-files-found: ignore
+
+  isa-checker:
+    name: ISA checker (forbidden-instruction guard)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install MIPS cross tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu python3
+
+      - name: Compile MIPS-I baseline object
+        run: |
+          set -euxo pipefail
+          cat > "$RUNNER_TEMP/isa-smoke.c" <<'EOF'
+          typedef unsigned int u32;
+
+          __attribute__((noinline))
+          u32 lexra_isa_smoke (const volatile u32 *p)
+          {
+            u32 a = p[0];
+            u32 b = p[1];
+            u32 c = p[2];
+            return (a + b) ^ (c - a);
+          }
+          EOF
+
+          mipsel-linux-gnu-gcc -march=mips1 -mno-abicalls -fno-pic \
+            -O2 -c "$RUNNER_TEMP/isa-smoke.c" -o "$RUNNER_TEMP/isa-smoke.o"
+          mipsel-linux-gnu-objdump -d "$RUNNER_TEMP/isa-smoke.o" \
+            > "$RUNNER_TEMP/isa-smoke.dis"
+
+      - name: Test checker and scan the object disassembly
+        run: |
+          set -euxo pipefail
+          cat > "$RUNNER_TEMP/check_isa.py" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          FORBIDDEN = {"lwl", "lwr", "swl", "swr"}
+          INSN = re.compile(
+              r"^\\s*[0-9a-f]+:\\s+(?:[0-9a-f]{2,8}\\s+)+"
+              r"([a-z][a-z0-9_.]*)\\b",
+              re.IGNORECASE,
+          )
+
+          def scan(disassembly):
+              found = []
+              decoded = 0
+              for line in disassembly.splitlines():
+                  match = INSN.match(line)
+                  if not match:
+                      continue
+                  decoded += 1
+                  mnemonic = match.group(1).lower()
+                  if mnemonic in FORBIDDEN:
+                      found.append(mnemonic)
+              return decoded, found
+
+          # A negative fixture proves that the guard really detects forbidden ops.
+          bad = "  0:  88020000  lwl v0,0(zero)\\n"
+          count, forbidden = scan(bad)
+          if count != 1 or forbidden != ["lwl"]:
+              raise SystemExit("checker self-test failed to detect synthetic LWL")
+
+          good = "  0:  8c820000  lw v0,0(a0)\\n"
+          count, forbidden = scan(good)
+          if count != 1 or forbidden:
+              raise SystemExit("checker self-test rejected a legal aligned load")
+
+          path = Path(sys.argv[1])
+          disassembly = path.read_text(encoding="utf-8")
+          count, forbidden = scan(disassembly)
+          if count == 0:
+              raise SystemExit("no instructions decoded; refusing a vacuous pass")
+          if forbidden:
+              raise SystemExit("forbidden LX5280-family instructions found: "
+                               + ", ".join(forbidden))
+          print(f"ISA check passed: {count} instructions; none of {sorted(FORBIDDEN)}")
+          PY
+
+          python3 "$RUNNER_TEMP/check_isa.py" "$RUNNER_TEMP/isa-smoke.dis"
+
+      - name: Upload disassembly
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isa-check-disassembly
+          path: ${{ runner.temp }}/isa-smoke.dis
+          if-no-files-found: ignore
+
+  qemu-smoke:
+    name: QEMU MIPS execution smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Install MIPS cross compiler and QEMU user emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc-mipsel-linux-gnu qemu-user
+
+      - name: Build and execute a MIPS program
+        run: |
+          set -euxo pipefail
+          cat > "$RUNNER_TEMP/qemu-smoke.c" <<'EOF'
+          #include <stdint.h>
+
+          static uint32_t
+          sum_words (const volatile uint32_t *words, unsigned int count)
+          {
+            uint32_t sum = 0;
+            for (unsigned int i = 0; i < count; ++i)
+              sum += words[i];
+            return sum;
+          }
+
+          int
+          main (void)
+          {
+            volatile uint32_t words[] = { 5, 7, 11, 13 };
+            return sum_words (words, 4) == 36 ? 0 : 1;
+          }
+          EOF
+
+          # Generic MIPS32r2 QEMU is only a shared-MIPS execution smoke test.
+          # It is NOT a Lexra LX5280 CPU model and cannot prove Lexra conformance.
+          mipsel-linux-gnu-gcc -static -O2 -march=mips32r2 -mabi=32 \
+            "$RUNNER_TEMP/qemu-smoke.c" -o "$RUNNER_TEMP/qemu-smoke"
+          qemu-mipsel "$RUNNER_TEMP/qemu-smoke"
