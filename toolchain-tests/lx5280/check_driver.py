@@ -83,7 +83,7 @@ def check_macro_profiles(args: argparse.Namespace, artifact_dir: Path) -> None:
     # Architecture and tuning are deliberately crossed in both directions.
     lx_arch = get_macros(
         args.cc, args.build_gcc_dir,
-        ["-march=lx5280", "-mtune=r3000", "-mabi=32"],
+        ["-march=lx5280", "-mtune=r3000"],
     )
     check_macro(lx_arch, "_MIPS_ARCH", "lx5280")
     check_macro(lx_arch, "_MIPS_TUNE", "r3000")
@@ -98,7 +98,7 @@ def check_macro_profiles(args: argparse.Namespace, artifact_dir: Path) -> None:
 
     r3000_arch = get_macros(
         args.cc, args.build_gcc_dir,
-        ["-march=r3000", "-mtune=lx5280", "-mabi=32", "-msoft-float"],
+        ["-march=r3000", "-mtune=lx5280", "-msoft-float"],
     )
     check_macro(r3000_arch, "_MIPS_ARCH", "r3000")
     check_macro(r3000_arch, "_MIPS_TUNE", "lx5280")
@@ -108,7 +108,7 @@ def check_macro_profiles(args: argparse.Namespace, artifact_dir: Path) -> None:
 
     hard_float = get_macros(
         args.cc, args.build_gcc_dir,
-        ["-march=lx5280", "-mtune=r3000", "-mabi=32",
+        ["-march=lx5280", "-mtune=r3000",
          "-mhard-float", "-mfp32"],
     )
     check_macro(hard_float, "_MIPS_ARCH", "lx5280")
@@ -206,7 +206,7 @@ lx5280_driver_probe_load (const volatile struct lx5280_driver_probe *p)
 
     common = [
         args.cc, f"-B{args.build_gcc_dir}/", "-march=lx5280",
-        "-mtune=r3000", "-mabi=32", "-msoft-float", "-mfp32",
+        "-mtune=r3000", "-msoft-float", "-mfp32",
         "-mno-abicalls", "-fno-pic",
     ]
 

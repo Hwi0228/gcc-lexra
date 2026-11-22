@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-march=r3000 -mtune=lx5280 -mabi=32 -msoft-float -mno-abicalls -fno-pic" } */
+/* { dg-options "-march=r3000 -mtune=lx5280 -msoft-float -mno-abicalls -fno-pic" } */
 
 /* Reversing the options must reverse only the selected architecture/tuning
    names, not conflate -mtune with -march.  */

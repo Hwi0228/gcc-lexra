@@ -23,8 +23,10 @@ disassembly; those require Binutils work.
 The DejaGNU tests cover:
 - Separation of `-march` and `-mtune`, checked through GCC's
   `_MIPS_ARCH` and `_MIPS_TUNE` predefined macros.
-- The MIPS-I/o32 profile and default soft-float ABI, including an explicit
-  hard-float override for systems with a compatible coprocessor.
+- The MIPS-I profile, the configured cross-compiler default o32 ABI, and the
+  default soft-float ABI, including an explicit hard-float override for
+  systems with a compatible coprocessor. The o32 default comes from this
+  CI target configuration (`--with-abi=32`), not from the LX5280 ISA itself.
 - Packed halfword/word loads and stores, volatile accesses, bitfields,
   `memcpy`, and `memmove`, with a negative scan for LWL/LWR/SWL/SWR.
 

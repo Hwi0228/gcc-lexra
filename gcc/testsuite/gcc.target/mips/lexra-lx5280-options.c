@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-march=lx5280 -mtune=r3000 -mabi=32 -mno-abicalls -fno-pic" } */
+/* { dg-options "-march=lx5280 -mtune=r3000 -mno-abicalls -fno-pic" } */
 
 /* -march selects the ISA; -mtune selects the scheduling/cost profile.  */
 #ifndef _MIPS_ARCH_LX5280
