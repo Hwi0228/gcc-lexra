@@ -1,5 +1,5 @@
 /* { dg-do compile } */
-/* { dg-options "-O2 -march=lx5280 -mno-abicalls -fno-pic" } */
+/* { dg-options "-march=lx5280 -mno-abicalls -fno-pic" } */
 
 /*
    LX5280 must use byte/halfword/word-aligned fallback sequences for memory

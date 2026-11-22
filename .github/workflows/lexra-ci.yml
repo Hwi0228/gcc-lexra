@@ -250,7 +250,22 @@ jobs:
             --target_board=unix \
             --srcdir="$GITHUB_WORKSPACE/gcc/testsuite" \
             --outdir="$RUNNER_TEMP/lx5280-dejagnu" \
-            mips.exp=lexra-lx5280-no-unaligned.c
+            mips.exp=lexra-lx5280-no-unaligned.c \
+            2>&1 | tee "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"
+
+          # DejaGNU can exit successfully even when a test emits ERROR.
+          # Promote harness errors and failures to a hard CI failure.
+          if grep -Eq '^(ERROR|FAIL):' "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
+            echo "DejaGNU reported an ERROR or FAIL result." >&2
+            exit 1
+          fi
+
+          if ! grep -Eq '^PASS: gcc.target/mips/lexra-lx5280-no-unaligned[.]c' \
+            "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
+            echo "The LX5280 DejaGNU regression test did not report PASS." >&2
+            cat "$RUNNER_TEMP/lx5280-dejagnu/runtest.log" >&2
+            exit 1
+          fi
 
       - name: Upload LX5280 build and DejaGNU artifacts
         if: always()

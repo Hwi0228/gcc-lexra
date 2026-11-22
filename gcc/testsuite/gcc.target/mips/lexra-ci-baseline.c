@@ -1,12 +1,11 @@
 /* { dg-do compile } */
-/* { dg-options "-march=mips1 -mno-abicalls -fno-pic -O2" } */
+/* { dg-options "-march=mips1 -mno-abicalls -fno-pic" } */
 
 /*
-   Baseline regression test for the GCC MIPS backend.
+   Baseline regression test for the generic GCC MIPS-I profile.
 
-   This deliberately uses the generic MIPS-I profile because the LX5280
-   target option has not been implemented yet. When that target is added,
-   switch the options to -march=lx5280 and keep these code-generation checks.
+   This remains a generic MIPS-I control case. LX5280-specific code-generation
+   checks are covered by lexra-lx5280-no-unaligned.c.
 */
 
 struct aligned_words
