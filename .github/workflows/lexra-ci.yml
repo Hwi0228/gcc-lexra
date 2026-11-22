@@ -214,7 +214,7 @@ jobs:
               -march=lx5280 -mno-abicalls -fno-pic "-O${optimization}" \
               -S "$test_file" -o "$assembly"
 
-            if grep -Eiw '\\b(lwl|lwr|swl|swr)\\b' "$assembly"; then
+            if grep -Eiw 'lwl|lwr|swl|swr' "$assembly"; then
               echo "LX5280 assembly contains an unsupported unaligned instruction at -O${optimization}" >&2
               exit 1
             fi
@@ -226,7 +226,7 @@ jobs:
               echo "No instructions decoded from LX5280 object at -O${optimization}" >&2
               exit 1
             fi
-            if grep -Eiw '\\b(lwl|lwr|swl|swr)\\b' "$disassembly"; then
+            if grep -Eiw 'lwl|lwr|swl|swr' "$disassembly"; then
               echo "LX5280 object contains an unsupported unaligned instruction at -O${optimization}" >&2
               exit 1
             fi
