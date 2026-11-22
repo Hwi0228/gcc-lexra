@@ -269,6 +269,100 @@ lx5280_driver_probe_load (const volatile struct lx5280_driver_probe *p)
     )
 
 
+
+def check_radiax_builtins(args: argparse.Namespace, artifact_dir: Path) -> None:
+    source = artifact_dir / "radiax-user-registers.c"
+    assembly = artifact_dir / "radiax-user-registers.s"
+    obj = artifact_dir / "radiax-user-registers.o"
+    source.write_text(
+        """
+__attribute__((noinline))
+unsigned int read_cbs0(void)
+{
+  return (unsigned int) __builtin_mips_lx5280_mfru(0);
+}
+
+__attribute__((noinline))
+unsigned int read_mmd(void)
+{
+  return (unsigned int) __builtin_mips_lx5280_mfru(24);
+}
+
+__attribute__((noinline))
+void write_cbs2(unsigned int value)
+{
+  __builtin_mips_lx5280_mtru(value, 2);
+}
+
+__attribute__((noinline))
+void write_lpc0(unsigned int value)
+{
+  __builtin_mips_lx5280_mtru(value, 18);
+}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    common = [
+        args.cc, f"-B{args.build_gcc_dir}/", "-march=lx5280",
+        "-mtune=r3000", "-mno-abicalls", "-fno-pic", "-msoft-float",
+        "-mfp32",
+    ]
+    run([*common, "-O2", "-S", str(source), "-o", str(assembly)])
+    text = assembly.read_text(encoding="utf-8")
+    words = [
+        int(match.group(1), 16)
+        for match in re.finditer(
+            r"(?im)^\s*\.word\s+(0x[0-9a-f]{8})\b", text
+        )
+    ]
+    allowed_user_registers = {0, 1, 2, 4, 5, 6, 16, 17, 18, 24}
+    counts = {34: 0, 35: 0}
+    observed_registers: dict[int, set[int]] = {34: set(), 35: set()}
+    for word in words:
+        if ((word >> 26) & 0x3f) != 0x1f:
+            continue
+        subop = word & 0x3f
+        if subop not in counts:
+            continue
+        if ((word >> 21) & 0x1f) != 0:
+            raise RuntimeError("Radiax MFRU/MTRU encoding has a non-zero rs field")
+        if ((word >> 6) & 0x1f) != 0:
+            raise RuntimeError("Radiax MFRU/MTRU encoding has non-zero reserved bits")
+        user_register = (word >> 11) & 0x1f
+        if user_register not in allowed_user_registers:
+            raise RuntimeError(
+                f"Radiax instruction selected a reserved user register {user_register}"
+            )
+        counts[subop] += 1
+        observed_registers[subop].add(user_register)
+
+    if counts[34] < 2 or counts[35] < 2:
+        raise RuntimeError(
+            "Radiax builtin output missing MFRAD/MTRAD SUBOP encodings: "
+            + repr(counts)
+        )
+    if observed_registers[34] != {0, 24}:
+        raise RuntimeError(
+            "MFRU did not encode the expected CBS0/MMD indices: "
+            + repr(observed_registers[34])
+        )
+    if observed_registers[35] != {2, 18}:
+        raise RuntimeError(
+            "MTRU did not encode the expected CBS2/LPC0 indices: "
+            + repr(observed_registers[35])
+        )
+
+    (artifact_dir / "radiax-encodings.txt").write_text(
+        "\n".join(f"0x{word:08x}" for word in words if ((word >> 26) & 0x3f) == 0x1f)
+        + "\n",
+        encoding="utf-8",
+    )
+    run([*common, "-O2", "-c", str(source), "-o", str(obj)])
+    if not obj.is_file() or obj.stat().st_size == 0:
+        raise RuntimeError("GCC/GAS did not assemble the Radiax builtin fixture")
+    print("Radiax MFRU/MTRU encoding check passed (SUBOP 34/35)")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cc", required=True)
@@ -284,6 +378,7 @@ def main() -> int:
     try:
         check_macro_profiles(args, artifact_dir)
         check_driver_path(args, artifact_dir)
+        check_radiax_builtins(args, artifact_dir)
     except (OSError, RuntimeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1

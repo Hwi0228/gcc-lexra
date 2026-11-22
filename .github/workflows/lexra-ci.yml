@@ -264,6 +264,7 @@ jobs:
             mips.exp=lexra-lx5280-no-unaligned.c \
             mips.exp=lexra-lx5280-options.c \
             mips.exp=lexra-lx5280-tune.c \
+            mips.exp=lexra-lx5280-radiax-movereg.c \
             mips.exp=lexra-ci-baseline.c \
             2>&1 | tee "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"
 
@@ -278,6 +279,7 @@ jobs:
             lexra-lx5280-no-unaligned.c \
             lexra-lx5280-options.c \
             lexra-lx5280-tune.c \
+            lexra-lx5280-radiax-movereg.c \
             lexra-ci-baseline.c; do
             if ! grep -Eq "^PASS: gcc.target/mips/${test_name}([[:space:]]|$)" \
               "$RUNNER_TEMP/lx5280-dejagnu/runtest.log"; then
