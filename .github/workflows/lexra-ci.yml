@@ -116,7 +116,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            gcc-mipsel-linux-gnu qemu-user
+            gcc-mipsel-linux-gnu qemu-user libc6-dev-mipsel-cross
 
       - name: Build and execute a MIPS program
         run: |
