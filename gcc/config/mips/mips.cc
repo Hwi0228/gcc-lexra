@@ -10367,7 +10367,7 @@ mips_file_start (void)
   else
     fputs ("\t.module\tnooddspreg\n", asm_out_file);
 
-  fprintf (asm_out_file, "\\t.module\\tarch=%s\\n",
+  fprintf (asm_out_file, "\t.module\tarch=%s\n",
 	   TARGET_LX5280 ? "mips1" : mips_arch_info->name);
   /* FIXME: DSPR3 is not supported by GCC? gas does support it */
   if (TARGET_DSPR2)
