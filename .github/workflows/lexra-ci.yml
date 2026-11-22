@@ -40,34 +40,9 @@ jobs:
           GCC_UNDER_TEST: mipsel-linux-gnu-gcc
         run: |
           set -euxo pipefail
-          test_dir="$GITHUB_WORKSPACE/gcc/testsuite/gcc.target/mips"
-          mkdir -p "$test_dir" "$RUNNER_TEMP/gcc-testsuite"
-
-          cat > "$test_dir/lexra-ci-baseline.c" <<'EOF'
-          /* { dg-do compile } */
-          /* { dg-options "-march=mips1 -mno-abicalls -fno-pic -O2" } */
-
-          /*
-             This is a baseline test, not a claim that GCC supports -march=lx5280
-             yet. Once the LX5280 target option is implemented, change the target
-             flags here and retain the same code-generation assertions.
-          */
-
-          struct aligned_words
-          {
-            unsigned int word[4];
-          };
-
-          __attribute__((noinline))
-          unsigned int
-          lexra_ci_sum_words (const volatile struct aligned_words *p)
-          {
-            return p->word[0] + p->word[1] + p->word[2] + p->word[3];
-          }
-
-          /* The aligned baseline must not need the MIPS unaligned left/right ops. */
-          /* { dg-final { scan-assembler-not "\\<(lwl|lwr|swl|swr)\\>" } } */
-          EOF
+          test_file="$GITHUB_WORKSPACE/gcc/testsuite/gcc.target/mips/lexra-ci-baseline.c"
+          test -f "$test_file"
+          mkdir -p "$RUNNER_TEMP/gcc-testsuite"
 
           cat > "$RUNNER_TEMP/site.exp" <<EOF
           set GCC_UNDER_TEST "mipsel-linux-gnu-gcc"
